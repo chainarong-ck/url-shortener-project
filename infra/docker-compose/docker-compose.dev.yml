@@ -1,0 +1,243 @@
+name: url-shortener-dev
+
+services:
+  nginx:
+    image: nginx:1.28.3-alpine3.23-slim
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      redirector:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    volumes:
+      - ../nginx/url-shortener.dev.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -S --spider http://127.0.0.1/ 2>&1 | grep -Eq 'HTTP/[0-9.]+ (200|30[12])'",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - app
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web/Dockerfile.dev
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_REDIRECTOR_URL: "${NEXT_PUBLIC_REDIRECTOR_URL:-https://example.com}"
+      NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-https://app.example.com}"
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-https://api.example.com}"
+    volumes:
+      - ../../apps/web:/app
+      - web_node_modules:/app/node_modules
+      - web_next:/app/.next
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - app
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api/Dockerfile.dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "3001:3000"
+    environment:
+      POSTGRES_HOST: "${POSTGRES_HOST:-postgres}"
+      POSTGRES_PORT: "${POSTGRES_PORT:-5432}"
+      POSTGRES_USER: "${POSTGRES_USER:-url_shortener}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-change-me}"
+      POSTGRES_DB: "${POSTGRES_DB:-url_shortener}"
+      REDIS_HOST: "${REDIS_HOST:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_USER: "${REDIS_USER:-default}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+      S3_ENDPOINT: "${S3_ENDPOINT:-http://minio:9000}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_BUCKET: "${S3_BUCKET:-url-shortener}"
+      S3_ACCESS_KEY: "${S3_ACCESS_KEY:-minioadmin}"
+      S3_SECRET_KEY: "${S3_SECRET_KEY:-change-me}"
+    volumes:
+      - ../../apps/api:/app
+      - api_node_modules:/app/node_modules
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - app
+
+  redirector:
+    build:
+      context: ../..
+      dockerfile: infra/docker/redirector/Dockerfile.dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3002:3000"
+    volumes:
+      - ../../apps/redirector:/app
+      - redirector_node_modules:/app/node_modules
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - app
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker/Dockerfile.dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "3003:3000"
+    environment:
+      POSTGRES_HOST: "${POSTGRES_HOST:-postgres}"
+      POSTGRES_PORT: "${POSTGRES_PORT:-5432}"
+      POSTGRES_USER: "${POSTGRES_USER:-url_shortener}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-change-me}"
+      POSTGRES_DB: "${POSTGRES_DB:-url_shortener}"
+      REDIS_HOST: "${REDIS_HOST:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_USER: "${REDIS_USER:-default}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+      S3_ENDPOINT: "${S3_ENDPOINT:-http://minio:9000}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_BUCKET: "${S3_BUCKET:-url-shortener}"
+      S3_ACCESS_KEY: "${S3_ACCESS_KEY:-minioadmin}"
+      S3_SECRET_KEY: "${S3_SECRET_KEY:-change-me}"
+    volumes:
+      - ../../apps/worker:/app
+      - worker_node_modules:/app/node_modules
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - app
+
+  postgres:
+    image: postgres:18.3-alpine3.23
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-url_shortener}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-change-me}"
+      POSTGRES_DB: "${POSTGRES_DB:-url_shortener}"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ../postgresql/init:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - app
+
+  redis:
+    image: redis:8.6.2-alpine3.23
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - ../redis/config/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ../redis/config/users.acl:/usr/local/etc/redis/users.acl:ro
+      - redis_dev_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - app
+
+  minio:
+    image: quay.io/minio/aistor/minio:RELEASE.2026-03-26T21-24-40Z
+    command:
+      ["minio", "server", "/mnt/data", "--console-address", ":9001", "--license", "/minio.license"]
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin123}"
+    volumes:
+      - minio_dev_data:/mnt/data
+      - ../minio/minio.license:/minio.license:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - app
+
+networks:
+  app:
+    driver: bridge
+
+volumes:
+  web_node_modules:
+  web_next:
+  api_node_modules:
+  redirector_node_modules:
+  worker_node_modules:
+  postgres_dev_data:
+  redis_dev_data:
+  minio_dev_data:

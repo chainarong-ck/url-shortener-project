@@ -1,0 +1,24 @@
+# OS and editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local tooling
+.codex
+.codex/
+
+# Root-level logs and coverage
+*.log
+coverage/
+
+# Environment files kept outside app-specific .gitignore files
+infra/docker-compose/.env*
+!infra/docker-compose/.env*.example
+
+# Infrastructure secrets
+infra/minio/*.license
+infra/nginx/ssl/
+!infra/nginx/ssl/.gitkeep
