@@ -9,6 +9,7 @@ Thumbs.db
 # Local tooling
 .codex
 .codex/
+.playwright-cli
 
 # Root-level logs and coverage
 *.log
