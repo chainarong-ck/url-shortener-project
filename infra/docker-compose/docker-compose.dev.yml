@@ -107,6 +107,16 @@ services:
         condition: service_healthy
     ports:
       - "3002:3000"
+    environment:
+      POSTGRES_HOST: "${POSTGRES_HOST:-postgres}"
+      POSTGRES_PORT: "${POSTGRES_PORT:-5432}"
+      POSTGRES_USER: "${POSTGRES_USER:-url_shortener}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-change-me}"
+      POSTGRES_DB: "${POSTGRES_DB:-url_shortener}"
+      REDIS_HOST: "${REDIS_HOST:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_USER: "${REDIS_USER:-default}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
     volumes:
       - ../../apps/redirector:/app
       - redirector_node_modules:/app/node_modules
